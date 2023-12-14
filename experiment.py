@@ -1,52 +1,92 @@
 from typing import Callable
 
 import numpy as np
-from proxskip.types import ProximityOperator, Vector, Function, Session
-from proxskip.algorithm import Algorithm
+from proxskip.data import DataLoader
+from proxskip.types import ProximityOperator, Vector
+from proxskip.model import Model
+from proxskip.loss import LossFunction
+from proxskip.optimizer import ProxSkip
+
 
 class L1Norm(ProximityOperator):
     def __call__(
-        self, 
-        x: Vector, 
-        gamma: Vector = None, 
-        ksi: Callable[[Vector], Vector] = None
+        self,
+        x: Vector,
+        state: dict
     ):
+        return x
+        gamma = state.get('gamma')
         u = np.full_like(x, -gamma + 2 * np.random.rand() * gamma)
         u[x > gamma] = x[x > gamma] - gamma
         u[x < -gamma] = x[x < -gamma] + gamma
         return u
-        
-        
-class MSEOverDataset(Function):
-    def __init__(self, batch_size, dim) -> None:
+
+
+class Linear(Model):
+    def __init__(self, in_features: int, out_features: int) -> None:
         super().__init__()
-        self.X = np.random.rand(batch_size, dim)
-        self.alpha_ = np.random.rand()
-        self.beta_ = np.random.rand() / 1E4
-        self.y = self.alpha_ * self.X + self.beta_
+        self._W = np.random.randn(in_features, out_features)
+        # self._b = np.random.randn(out_features)
 
-    def __call__(self, x: Vector, fx: Vector = None):
-        return (2 * self.X * (x[None, :] * self.X - self.y)).mean(axis=0)
+    def params(self) -> Vector:
+        # return np.concatenate([self._W.ravel(), self._b.ravel()])
+        return self._W
+
+    def forward(self, x: Vector) -> Vector:
+        return x @ self._W
+    
+    def backward(self, x: Vector, upstream: Vector) -> Vector:
+        return upstream @ self._W.T
+
+    def update(self, params: Vector) -> None:
+        # self._W = params[:self._W.size].reshape(self._W.shape)
+        # self._b = params[self._W.size:]
+        self._W = params.copy()
+
+class SimpleDataset(DataLoader):
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self._X = np.random.randn(100, in_features)
+        self._y = self._X @ np.random.randn(in_features, out_features)
+
+    def total_size(self) -> int:
+        return self._X.shape[0]
+
+    def get(self, j: int, size: int) -> tuple[Vector, Vector]:
+        return self._X[j:j+size], self._y[j:j+size]
+    
+
+class MSE(LossFunction):
+    def __init__(self, dataloader: DataLoader, model: Model) -> None:
+        self._dl = dataloader
+        self._M = model
+
+    def dloss(self, j: int, size: int) -> Vector:
+        """Gradient of MSE loss function w.r.t. model parameters"""
+        X, y = self._dl.get(j, size)
+        y_hat = self._M.forward(X)
+        return self._M.backward(X, y_hat - y).mean(axis=0)
+        
+    def loss(self, j: int, size: int) -> float:
+        """MSE loss function"""
+        X, y = self._dl.get(j, size)
+        y_hat = self._M.forward(X)
+        return ((y_hat - y) ** 2).mean()
     
     
-    
-fn = MSEOverDataset(10, 20)
-prox = L1Norm()
-al = Algorithm(
-    fn,
-    prox
+optimizer = ProxSkip(
+    models=Linear(10, 10),
+    dataloaders=SimpleDataset(10, 10),
+    loss=MSE,
+    prox=L1Norm(),
+    num_iterations=1000,
+    learning_rate=0.001,
+    batch_size=100,
+    p=0.5
 )
 
-al.new_session(
-    Session(
-        num_iterations=100,
-        step_size=0.0001,
-        probability=1/100,
-        x0=np.random.randn(20),
-        h0=np.random.randn(20)
-    )
-)
-
-while (x := al.step()):
-    al.update(*x)
-    print(((al._parameters * fn.X - fn.y) ** 2).mean())
+while (x_t := optimizer.step()):
+    optimizer.update()
+    print([x for x in optimizer._step['losses'][-1]][0])
+    
+print(optimizer._step['x_t'])
