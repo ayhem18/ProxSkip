@@ -3,9 +3,9 @@ from .types import Vector
 
 class DataLoader(ABC):
     @abstractmethod
-    def get() -> tuple[Vector, Vector]:
+    def get(self) -> tuple[Vector, Vector]:
         pass
     
     @abstractmethod
-    def total_size() -> int:
+    def total_size(self) -> int:
         pass

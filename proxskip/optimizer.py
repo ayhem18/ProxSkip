@@ -15,12 +15,12 @@ class Optimizer:
         self,
         models: Model | List[Model],
         dataloaders: DataLoader | List[DataLoader],
-        loss: Type[LossFunction],
+        loss: LossFunction,
         prox: ProximityOperator = None,
         *,
         num_iterations: int = 10000,
         learning_rate: float = 0.1,
-        batch_size: int = 1000,
+        # batch_size: int = 1000,
     ) -> None:
 
         if isinstance(models, Model):
@@ -30,22 +30,26 @@ class Optimizer:
 
         self.models_ = models
         self.dl_ = dataloaders
-        self.loss_ = loss()
+        self.loss_ = loss
         self.prox_ = prox
 
         self._num_iterations = num_iterations
         self._learning_rate = learning_rate
-        self._batch_size = batch_size
+        # self._batch_size = batch_size
         self._total_size = self.dl_[0].total_size()
         self._num_devices = len(models)
 
         assert all(dl.total_size() == self._total_size for dl in dataloaders), \
             'All dataloaders must have the same total size'
 
+        w = self.models_[0].params()
+        for i in range(len(self.models_)):
+            self.models_[i].weights = w
+
         self._step = {
             't': 0,
             'x_t': [model.params() for model in self.models_],
-            'h_t': [np.random.rand(*model.params().shape) for model in self.models_],
+            'h_t': [np.zeros_like(model.params()) for model in self.models_],
             'x_h_tp1': [],
             'losses': [],
             'loss': [],
@@ -59,6 +63,84 @@ class Optimizer:
     @abstractmethod
     def update(self, x_tp1: Vector) -> None:
         pass
+    
+    
+class LocalGD(Optimizer):
+    def __init__(
+        self,
+        models: Model | List[Model],
+        dataloaders: DataLoader | List[DataLoader],
+        loss: LossFunction,
+        prox: ProximityOperator = None,
+        *,
+        num_iterations: int = 10000,
+        learning_rate: float = 0.1,
+        # batch_size: int = 1000,
+        communication_rate: int = 100
+    ) -> None:
+        super().__init__(
+            models,
+            dataloaders,
+            loss,
+            None,
+            num_iterations=num_iterations,
+            learning_rate=learning_rate,
+            # batch_size=batch_size,
+        )
+        self.comminucation_rounds_ = communication_rate
+        
+
+    def step(self) -> Vector:
+        t = self._step['t']
+
+        if t >= self._num_iterations:
+            return None
+
+        x_t = self._step['x_t']
+
+       
+        upstream_gradients = []
+        for i, dl in enumerate(self.dl_):
+            X, y = dl.get()
+            upstream_gradients.append(
+                self.loss_.upstream_gradient(self.models_[i], X, y)
+            )
+
+        current_gradients = []
+        for i, model in enumerate(self.models_):
+            X, y = self.dl_[i].get()
+            current_gradients.append(
+                model.backward(X, upstream_gradients[i])
+            )
+        
+
+        x_tp1 = [
+            x_t[j] - self._learning_rate * current_gradients[j]
+            for j in range(len(self.models_))
+        ]
+        
+        to_sync = t % self.comminucation_rounds_ == 0
+        
+        if to_sync:
+            x_tp1 = np.mean(x_tp1, axis=0)
+            x_tp1 = [x_tp1.copy() for _ in range(len(self.models_))]
+
+        self._step['t'] += 1
+        self._step['x_t'] = x_tp1
+
+        for i, model in enumerate(self.models_):
+            model.update(x_tp1[i])
+
+        if to_sync:
+            uni_model = self.models_[0]
+            loss = 0
+            for i, dl in enumerate(self.dl_):
+                X, y = dl.get()
+                loss += self.loss_.loss(uni_model, X, y)
+            loss /= len(self.dl_)
+            self._step['loss'].append(loss)
+
+        return to_sync
 
 
 class ProxSkip(Optimizer):
@@ -66,12 +148,12 @@ class ProxSkip(Optimizer):
         self,
         models: Model | List[Model],
         dataloaders: DataLoader | List[DataLoader],
-        loss: Type[LossFunction],
+        loss: LossFunction,
         prox: ProximityOperator = None,
         *,
         num_iterations: int = 10000,
         learning_rate: float = 0.1,
-        batch_size: int = 1000,
+        # batch_size: int = 1000,
         p: float = 1 / 100,
     ) -> None:
         super().__init__(
@@ -81,7 +163,7 @@ class ProxSkip(Optimizer):
             prox,
             num_iterations=num_iterations,
             learning_rate=learning_rate,
-            batch_size=batch_size,
+            # batch_size=batch_size,
         )
         self.p_ = p
 
@@ -104,7 +186,7 @@ class ProxSkip(Optimizer):
         for i, dl in enumerate(self.dl_):
             X, y = dl.get()
             upstream_gradients.append(
-                self.loss_.upstream_gradient(y, self.models_[i].forward(X))
+                self.loss_.upstream_gradient(self.models_[i], X, y)
             )
 
         current_gradients = []

@@ -12,7 +12,7 @@ class LossFunction:
         pass
     
     @abstractmethod
-    def upstream_gradient(self, y: Vector, y_hat: Vector) -> float:
+    def upstream_gradient(self,  m: Model, X: Vector, y: Vector) -> Vector:
         pass
         
     
