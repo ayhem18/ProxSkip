@@ -6,31 +6,22 @@ from .data import DataLoader
 from .types import Vector
 
 
-class LossFunction:
-    def __init__(
-        self,
-        dataloader: DataLoader,
-        model: Model
-    ):
-        self._dl = dataloader
-        self._M = model
-
-    
+class LossFunction:    
     @abstractmethod
-    def dloss(self, j: int, size: int) -> Vector:
+    def loss(self, m: Model, X: Vector, y: Vector) -> Vector:
         pass
     
     @abstractmethod
-    def loss(self, j: int, size: int) -> float:
+    def upstream_gradient(self, y: Vector, y_hat: Vector) -> float:
         pass
-    
+        
     
     
 class LogisticLoss(LossFunction):
     def __init__(self, dataloader: DataLoader, model: Model):
         super().__init__(dataloader, model)
 
-    def dloss(self, j: int, size: int) -> Vector:
+    def upstream_gradient(self, j: int, size: int) -> Vector:
         X, y = self._dl.get(j, size)
         L = (np.linalg.norm(X, axis=1) ** 2 / 4).mean()
         lmbd = L / 1000

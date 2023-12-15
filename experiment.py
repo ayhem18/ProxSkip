@@ -8,18 +8,20 @@ from proxskip.loss import LossFunction
 from proxskip.optimizer import ProxSkip
 
 
-class L1Norm(ProximityOperator):
+class ConsesusProx(ProximityOperator):
     def __call__(
         self,
         x: Vector,
         state: dict
     ):
-        return x
-        gamma = state.get('gamma')
-        u = np.full_like(x, -gamma + 2 * np.random.rand() * gamma)
-        u[x > gamma] = x[x > gamma] - gamma
-        u[x < -gamma] = x[x < -gamma] + gamma
-        return u
+        x_h_tp1 = state['x_h_tp1']
+        avg_weight = np.zeros(shape=x_h_tp1[0].shape)
+
+        for local_weight in x_h_tp1: 
+            avg_weight += local_weight
+
+        avg_weight /= len(x_h_tp1)
+        return avg_weight
 
 
 class Linear(Model):
@@ -45,7 +47,9 @@ class Linear(Model):
 
         output = x @ self._W
 
-        assert output.shape == (batch_size, self.out_features), f"Make sure the output is of the correct shape. Found: {batch_size, self.out_features}. Found: {x.shape}"
+        assert output.shape == (batch_size, self.out_features), \
+            f"Make sure the output is of the correct shape. Found: {batch_size, self.out_features}. "\
+            "Found: {x.shape}"
         return output
 
     
@@ -68,59 +72,71 @@ class Linear(Model):
         self._W = params.copy()
 
 class SimpleDataset(DataLoader):
-    def __init__(self, in_features: int, out_features: int) -> None:
-        super().__init__()
-        # Each row represents a sample
-        self._X = np.random.randn(100, in_features)
-        # the output will be of the shape: (100, out_features) (why out_features in general and not only '1' ?)
-        self._y = self._X @ np.random.randn(in_features, out_features)
+    def __init__(self, X, y):
+        self._X = X
+        self._y = y
 
     def total_size(self) -> int:
         return self._X.shape[0]
 
-    def get(self, j: int, size: int) -> tuple[Vector, Vector]:
-        return self._X[j:j+size], self._y[j:j+size]
+    def get(self) -> tuple[Vector, Vector]:
+        return self._X, self._y
     
 
 class MSE(LossFunction):
-    def __init__(self, dataloader: DataLoader, model: Model) -> None:
-        self._dl = dataloader
-        self._M = model
+    # def dloss(self, j: int, size: int) -> Vector:
+    #     """Gradient of MSE loss function w.r.t. model parameters"""
+    #     # extract the data and the labels
+    #     X, y = self._dl.get(j, size)
+    #     # forward pass: predict
+    #     y_hat = self._M.forward(X)
 
-    def dloss(self, j: int, size: int) -> Vector:
-        """Gradient of MSE loss function w.r.t. model parameters"""
-        # extract the data and the labels
-        X, y = self._dl.get(j, size)
-        # forward pass: predict
-        y_hat = self._M.forward(X)
-
-        # MSE LOSS will be defined as the average of the squared error between y_hat and y
-        # so the gradient with respect to each element in 'y_hat' is the difference between y_hat_i and y_i divided by the number of elements in 'y' 
-        mse_loss_grad = (y_hat - y) / y.size
-        # why mean ???
-        return self._M.backward(X, mse_loss_grad)# .mean(axis=0) 
+    #     # MSE LOSS will be defined as the average of the squared error between y_hat and y
+    #     # so the gradient with respect to each element in 'y_hat' is the difference between y_hat_i and y_i divided by the number of elements in 'y' 
+    #     mse_loss_grad = (y_hat - y) / y.size
+    #     # why mean ???
+    #     return self._M.backward(X, mse_loss_grad)# .mean(axis=0) 
         
-    def loss(self, j: int, size: int) -> float:
-        """MSE loss function"""
-        X, y = self._dl.get(j, size)
-        y_hat = self._M.forward(X)
-        return ((y_hat - y) ** 2).mean()
+    # def loss(self, j: int, size: int) -> float:
+    #     """MSE loss function"""
+    #     X, y = self._dl.get(j, size)
+    #     y_hat = self._M.forward(X)
+    #     return ((y_hat - y) ** 2).mean()
     
+    def upstream_gradient(self, y: Vector, y_hat: Vector) -> float:
+        return (y_hat - y) / y.size
+    
+    def loss(self, m: Model, X: Vector, y: Vector) -> Vector:
+        y_hat = m.forward(X)
+        return ((y_hat - y) ** 2).mean()
+        
+    
+    
+    
+    
+X = np.random.randn(20, 10)
+y = X @ np.random.randn(10, 1)
+    
+devices = [
+    (Linear(10, 1), SimpleDataset(X[:10], y[:10])),
+    (Linear(10, 1), SimpleDataset(X[10:], y[10:])),
+]
     
 optimizer = ProxSkip(
-    models=Linear(10, 1),
-    dataloaders=SimpleDataset(10, 1),
+    models=[model for model, _ in devices],
+    dataloaders=[dataloader for _, dataloader in devices],
     loss=MSE,
-    prox=L1Norm(),
+    prox=ConsesusProx(),
     num_iterations=1000,
     learning_rate=0.002,
     batch_size=100,
     p=1
 )
 
-while (x_t := optimizer.step()):
-    optimizer.update()
-    print([x for x in optimizer._step['losses'][-1]][0])
-    print("#" * 100)
+while True:
+    on_prox = optimizer.step()
+    if on_prox is None:
+        print(optimizer._step['loss'][-1])
+    
     
 print(optimizer._step['x_t'])

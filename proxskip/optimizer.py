@@ -30,8 +30,7 @@ class Optimizer:
 
         self.models_ = models
         self.dl_ = dataloaders
-        self.loss_ = [loss(dl, model)
-                      for dl, model in zip(dataloaders, models)]
+        self.loss_ = loss()
         self.prox_ = prox
 
         self._num_iterations = num_iterations
@@ -47,7 +46,9 @@ class Optimizer:
             't': 0,
             'x_t': [model.params() for model in self.models_],
             'h_t': [np.random.rand(*model.params().shape) for model in self.models_],
+            'x_h_tp1': [],
             'losses': [],
+            'loss': [],
             'gamma': self._learning_rate,
         }
 
@@ -94,19 +95,24 @@ class ProxSkip(Optimizer):
         x_t = self._step['x_t']
         h_t = self._step['h_t']
 
-        # Iteration over devices
-        batch_idx = (t % self._total_size) // self._batch_size
-        n = batch_idx * self._batch_size
-
         # Flip a coin to decide whether to carry out with the prox opreation or not
-        to_prox = np.random.rand() > self.p_
+        to_prox = np.random.rand() < self.p_
         
         # calculate the gradients of the loss function
         # with respect to the parameters of each model
-        current_gradients = [
-            self.loss_[i].dloss(n, self._batch_size)
-            for i in range(len(self.models_))
-        ]
+        upstream_gradients = []
+        for i, dl in enumerate(self.dl_):
+            X, y = dl.get()
+            upstream_gradients.append(
+                self.loss_.upstream_gradient(y, self.models_[i].forward(X))
+            )
+
+        current_gradients = []
+        for i, model in enumerate(self.models_):
+            X, y = self.dl_[i].get()
+            current_gradients.append(
+                model.backward(X, upstream_gradients[i])
+            )
         
         # Quantities for the update on prox skip
         phi_ = self._learning_rate / self.p_
@@ -117,26 +123,28 @@ class ProxSkip(Optimizer):
             x_t[j] - self._learning_rate * (current_gradients[j] - h_t[j])
             for j in range(len(self.models_))
         ]
+        
+        self._step['x_h_tp1'] = x_h_tp1
 
         if to_prox:
             # in the federated learning setting, 
             # the prox operation is averaging the values at the local devices
 
             # step 1: average all x_h_tp1: since we do not know the exact shape
-            avg_weight = np.zeros(shape=x_h_tp1[0].shape)
+            # avg_weight = np.zeros(shape=x_h_tp1[0].shape)
 
-            for local_weight in x_h_tp1: 
-                avg_weight += local_weight
+            # for local_weight in x_h_tp1: 
+            #     avg_weight += local_weight
 
-            avg_weight /= len(x_h_tp1)
+            # avg_weight /= len(x_h_tp1)
 
-            # set all the values in x_h_tp1 to 'avg_weight'
-            x_tp1 = [avg_weight for _ in x_h_tp1]
+            # # set all the values in x_h_tp1 to 'avg_weight'
+            # x_tp1 = [avg_weight for _ in x_h_tp1]
 
-            # x_tp1 = [
-            #     self.prox_(x_h_tp1[j] - phi_ * h_t[j], self._step)
-            #     for j in range(len(self.models_))
-            # ]
+            x_tp1 = [
+                self.prox_(x_h_tp1[j] - phi_ * h_t[j], self._step)
+                for j in range(len(self.models_))
+            ]
 
         else:
             x_tp1 = x_h_tp1
@@ -149,18 +157,25 @@ class ProxSkip(Optimizer):
             for j in range(len(self.models_))
         ]
         
-
         self._step['t'] += 1
         self._step['x_t'] = x_tp1
         self._step['h_t'] = h_tp1
-        self._step['losses'].append([
-            self.loss_[i].loss(n, self._batch_size)
-            for i in range(len(self.models_))
-        ])
+     
+        for i, model in enumerate(self.models_):
+            model.update(x_tp1[i])
+            
+        if to_prox:
+            uni_model = self.models_[0]
+            loss = 0
+            for i, dl in enumerate(self.dl_):
+                X, y = dl.get()
+                loss += self.loss_.loss(uni_model, X, y)
+            loss /= len(self.dl_)
+            self._step['loss'].append(loss)
 
-        return x_tp1
+        return to_prox
 
-    def update(self) -> None:
-        for j, model in enumerate(self.models_):
-            model.update(self._step['x_t'][j])
+    # def update(self) -> None:
+    #     for j, model in enumerate(self.models_):
+    #         model.update(self._step['x_t'][j])
  

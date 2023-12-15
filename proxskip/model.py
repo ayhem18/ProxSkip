@@ -18,3 +18,5 @@ class Model(ABC):
     @abstractmethod
     def backward(self, x: Vector, upstream: Vector) -> Vector:
         pass
+    
+    
