@@ -5,6 +5,7 @@ import numpy as np
 from .loss import LossFunction
 
 from .data import DataLoader
+from .stochastic_dataloader import StochasticBatchedDataset
 
 from .types import Vector, ProximityOperator
 from .model import Model
@@ -106,19 +107,35 @@ class LocalGD(Optimizer):
 
        
         upstream_gradients = []
-        for i, dl in enumerate(self.dl_):
-            X, y = dl.get()
+        # for i, dl in enumerate(self.dl_):
+        #     X, y = dl.get()
+        #     upstream_gradients.append(
+        #         self.loss_.upstream_gradient(self.models_[i], X, y)
+        #     )
+
+        # current_gradients = []
+        # for i, model in enumerate(self.models_):
+        #     X, y = self.dl_[i].get()
+        #     current_gradients.append(
+        #         model.backward(X, upstream_gradients[i])
+        #     )
+        
+        # Convert a list of tuples into two lists
+        Xs, Ys = list(map(list, zip(*[dl.get() for dl in self.dl_])))
+
+        upstream_gradients = []
+
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
             upstream_gradients.append(
-                self.loss_.upstream_gradient(self.models_[i], X, y)
+                self.loss_.upstream_gradient(self.models_[i], x, y)
             )
 
         current_gradients = []
-        for i, model in enumerate(self.models_):
-            X, y = self.dl_[i].get()
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
             current_gradients.append(
-                model.backward(X, upstream_gradients[i])
+                self.models_[i].backward(x, upstream_gradients[i])
             )
-        
+
 
         x_tp1 = [
             x_t[j] - self._learning_rate * current_gradients[j]
@@ -188,18 +205,21 @@ class ProxSkip(Optimizer):
         
         # calculate the gradients of the loss function
         # with respect to the parameters of each model
+
+        # Convert a list of tuples into two lists
+        Xs, Ys = list(map(list, zip(*[dl.get() for dl in self.dl_])))
+
         upstream_gradients = []
-        for i, dl in enumerate(self.dl_):
-            X, y = dl.get()
+
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
             upstream_gradients.append(
-                self.loss_.upstream_gradient(self.models_[i], X, y)
+                self.loss_.upstream_gradient(self.models_[i], x, y)
             )
 
         current_gradients = []
-        for i, model in enumerate(self.models_):
-            X, y = self.dl_[i].get()
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
             current_gradients.append(
-                model.backward(X, upstream_gradients[i])
+                self.models_[i].backward(x, upstream_gradients[i])
             )
         
         # Quantities for the update on prox skip
@@ -266,4 +286,105 @@ class ProxSkip(Optimizer):
     # def update(self) -> None:
     #     for j, model in enumerate(self.models_):
     #         model.update(self._step['x_t'][j])
- 
+
+
+class StochasticProxSkip(Optimizer):
+    def __init__(
+        self,
+        models: Model | List[Model],
+        dataloaders: StochasticBatchedDataset | List[StochasticBatchedDataset],
+        loss: LossFunction,
+        prox: ProximityOperator = None,
+        *,
+        num_iterations: int = 10000,
+        learning_rate: float = 0.1,
+        # batch_size: int = 1000,
+        p: float = 1 / 100,
+    ) -> None:
+        super().__init__(
+            models,
+            dataloaders,
+            loss,
+            prox,
+            num_iterations=num_iterations,
+            learning_rate=learning_rate,
+            # batch_size=batch_size,
+        )
+        self.p_ = p
+
+    def step(self) -> Vector:
+        # extract the 
+        t = self._step['t']
+
+        if t >= self._num_iterations:
+            return None
+
+        x_t = self._step['x_t']
+        h_t = self._step['h_t']
+
+        # Flip a coin to decide whether to carry out with the prox opreation or not
+        to_prox = np.random.rand() < self.p_
+        
+        # calculate the gradients of the loss function
+        # with respect to the parameters of each model
+
+        # Convert a list of tuples into two lists
+        Xs, Ys = list(map(list, zip(*[dl.get() for dl in self.dl_])))
+
+        upstream_gradients = []
+
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
+            upstream_gradients.append(
+                self.loss_.upstream_gradient(self.models_[i], x, y)
+            )
+
+        current_gradients = []
+        for i, (x, y) in enumerate(zip(Xs, Ys)):
+            current_gradients.append(
+                self.models_[i].backward(x, upstream_gradients[i])
+            )
+        
+        # Quantities for the update on prox skip
+        phi_ = self._learning_rate / self.p_
+        iphi_ = 1 / phi_
+        
+        # calculate x^{t + 1} for every model / device: Line 3 in the algorithm
+        x_h_tp1 = [
+            x_t[j] - self._learning_rate * (current_gradients[j] - h_t[j])
+            for j in range(len(self.models_))
+        ]
+        
+        self._step['x_h_tp1'] = x_h_tp1
+
+        if to_prox:
+            x_tp1 = [
+                self.prox_(x_h_tp1[j] - phi_ * h_t[j], self._step)
+                for j in range(len(self.models_))
+            ]
+
+        else:
+            x_tp1 = x_h_tp1
+
+
+        h_tp1 = [
+            h_t[j] + iphi_ * (x_tp1[j] - x_h_tp1[j])
+            for j in range(len(self.models_))
+        ]
+        
+        self._step['t'] += 1
+        self._step['x_t'] = x_tp1
+        self._step['h_t'] = h_tp1
+     
+        for i, model in enumerate(self.models_):
+            model.update(x_tp1[i])
+        
+        if to_prox:
+            uni_model = self.models_[0]
+            loss = 0
+            for i, dl in enumerate(self.dl_):
+                X, y = dl.get_data()
+                loss += self.loss_.loss(uni_model, X, y)
+            loss /= len(self.dl_)
+            self._step['loss'].append(loss)
+
+        return to_prox

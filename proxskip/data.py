@@ -9,3 +9,7 @@ class DataLoader(ABC):
     @abstractmethod
     def total_size(self) -> int:
         pass
+    
+    def get_data(self) -> tuple[Vector, Vector]:
+        return self.get()
+
