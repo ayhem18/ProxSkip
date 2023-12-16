@@ -382,8 +382,15 @@ class StochasticProxSkip(Optimizer):
             uni_model = self.models_[0]
             loss = 0
             for i, dl in enumerate(self.dl_):
-                X, y = dl.get_data()
-                loss += self.loss_.loss(uni_model, X, y)
+                local_loss, i, n = 0, 0, 0
+                while True:
+                    if i >= dl.total_size():
+                        break
+                    X, y = dl.get_data(i, 32)
+                    local_loss += self.loss_.loss(uni_model, X, y)
+                    n += 1
+                    i += 32
+                loss += local_loss / n                    
             loss /= len(self.dl_)
             self._step['loss'].append(loss)
 

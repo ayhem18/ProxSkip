@@ -20,7 +20,7 @@ class StochasticBatchedDataset(DataLoader):
         self.num_batches = int(math.ceil(num_samples / batch_size))
         self.data = data.toarray()
         self.labels = labels
-        self.L = (np.linalg.norm(self.data,  axis=1) ** 2).mean() / 4
+        self.L = (np.linalg.norm(self.data,  axis=1, ord=2) ** 2).mean() / 4
 
 
     def get(self, batch_index: int = None) -> tuple[Vector, Vector]:
@@ -32,5 +32,5 @@ class StochasticBatchedDataset(DataLoader):
     def total_size(self) -> int:
         return self.data.shape[0]    
     
-    def get_data(self):
+    def get_data(self, left: int, right: int) -> tuple[Vector, Vector]:
         return self.data, self.labels
