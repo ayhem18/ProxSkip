@@ -139,4 +139,3 @@ while True:
         print(optimizer._step['loss'][-1])
     
     
-print(optimizer._step['x_t'])

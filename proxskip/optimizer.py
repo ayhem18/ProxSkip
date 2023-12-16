@@ -46,10 +46,16 @@ class Optimizer:
         for i in range(len(self.models_)):
             self.models_[i].weights = w
 
+        h_t = [np.random.randn(*model.params().shape) for model in self.models_]
+
+        h_t = np.array(h_t)
+        h_t = (h_t - h_t.mean(axis=0))
+        assert np.allclose(np.sum(h_t, axis=0), np.zeros_like(h_t[0])), \
+            'Initial h_t does not sum to zero'
         self._step = {
             't': 0,
             'x_t': [model.params() for model in self.models_],
-            'h_t': [np.zeros_like(model.params()) for model in self.models_],
+            'h_t': h_t,
             'x_h_tp1': [],
             'losses': [],
             'loss': [],
