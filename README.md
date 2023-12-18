@@ -51,5 +51,12 @@ cd proxskip
 python resnet18/train.sgd.py
 ```
 
-Files tagged with losses, such are `resnet18.losses.*` are losses saved during the training of each of experiments. They are used to produce plots.
+Files tagged with losses, such are `resnet18.losses.*` are losses saved during the training of each of experiments. They are used to produce plots. 
 
+In addition to training a Resnet Model with our implementation of ScaffNew, we attempted to reproduce some of the experiments from the paper. 
+
+With the right environment running the notebooks below with reproduce the results: 
+
+1. paper_experiment/experiences_1.ipynb to reproduce the main experiments: Comparing the performance of Local GD with ScaffNew and Stochastic Local GD with Stochastic ScaffNew
+
+2. paper_experiment/experiences_1.ipynb to reproduce some extra 
