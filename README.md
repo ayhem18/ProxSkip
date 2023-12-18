@@ -23,5 +23,33 @@ Despite the empirical advantages of methods like Scaffold, S-Local-GD, and FedLi
 
 The work is based on a classical proximal gradient descent with a certain extension. The main idea of the extension is to be able to skip prox function computations. The approach introduces a control variate that helps to achieve provable convergence in a convex setting with an ability to skip an amount of steps sufficient for reaching forementioned compexity.
 
+# Contribution
 
+Our contribution is using Scaffnew method in training of deep neural network. We trained ResNet-18 model with PyTorch framework using our own implementation of Scaffnew. We simulated a multi-device environment and explored different settings for $p$. For these experiments we additionally used learning rate decaying and mini-batch loss calculation.
+
+To reproduce the training run:
+
+```bash
+cd proxskip
+
+python resnet18/train.scaffnew.py
+```
+
+We have saved and shared weights of the experiments. They are stored in proxskip/resnet18/assets. You can evaluate a certain checkpoint using the following command: 
+
+```bash
+cd proxskip
+
+python resnet18/eval.py -w <PATH-TO-WEGHTS>
+```
+
+Also, to have a result to compare with, we have implemented a training loop of ResNet-18 with SGD algorithm (with no momentum). The algorithm is runnable using the following command:
+
+```bash
+cd proxskip
+
+python resnet18/sgd.py
+```
+
+Files tagged with losses, such are `resnet18.losses.*` are losses saved during the training of each of experiments. They are used to produce plots.
 
