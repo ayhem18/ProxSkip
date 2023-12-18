@@ -27,6 +27,12 @@ The work is based on a classical proximal gradient descent with a certain extens
 
 Our contribution is using Scaffnew method in training of deep neural network. We trained ResNet-18 model with PyTorch framework using our own implementation of Scaffnew. We simulated a multi-device environment and explored different settings for $p$. For these experiments we additionally used learning rate decaying and mini-batch loss calculation.
 
+Before reproduction, use install the requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
 To reproduce the training run:
 
 ```bash
@@ -57,6 +63,6 @@ In addition to training a Resnet Model with our implementation of ScaffNew, we a
 
 With the right environment running the notebooks below with reproduce the results: 
 
-1. paper_experiment/experiences_1.ipynb to reproduce the main experiments: Comparing the performance of Local GD with ScaffNew and Stochastic Local GD with Stochastic ScaffNew
+1. `paper_experiment/experiences_1.ipynb` to reproduce the main experiments: Comparing the performance of Local GD with ScaffNew and Stochastic Local GD with Stochastic ScaffNew
 
-2. paper_experiment/experiences_1.ipynb to reproduce some extra 
+2. `paper_experiment/experiences_2.ipynb` to reproduce some extra experiments.
