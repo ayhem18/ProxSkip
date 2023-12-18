@@ -257,8 +257,8 @@ def proxSkipFL(
                 # the last case is where the criterion is passed as an argument
                 diff = mode(x_current)
 
-            if cs % report_by_prox == 0:
-                print(f"Communication conducted: {cs + 1} times")
+            # if cs % report_by_prox == 0:
+            #     print(f"Communication conducted: {cs + 1} times")
             
             # update the prox counter
             cs += 1

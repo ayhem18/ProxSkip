@@ -2,3 +2,8 @@ opt_env
 __pycache__/
 *.pyc
 local_copy.ipynb
+
+paper_experiment/deterministic.ipynb
+paper_experiment/deterministic_fixed.ipynb
+paper_experiment/deterministic_exp2_good.ipynb
+paper_experiment/deterministic_exp.ipynb
