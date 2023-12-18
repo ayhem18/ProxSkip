@@ -48,7 +48,7 @@ Also, to have a result to compare with, we have implemented a training loop of R
 ```bash
 cd proxskip
 
-python resnet18/sgd.py
+python resnet18/train.sgd.py
 ```
 
 Files tagged with losses, such are `resnet18.losses.*` are losses saved during the training of each of experiments. They are used to produce plots.
