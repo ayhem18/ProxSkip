@@ -5,6 +5,9 @@ import numpy as np
 from proxskip.data import DataLoader
 from proxskip.types import Vector
 
+random.seed(69)
+np.random.seed(69)
+
 class StochasticBatchedDataset(DataLoader):
     def __init__(self, 
                  data, 
@@ -20,7 +23,10 @@ class StochasticBatchedDataset(DataLoader):
         self.num_batches = int(math.ceil(num_samples / batch_size))
         self.data = data.toarray()
         self.labels = labels
-        self.L = (np.linalg.norm(self.data,  axis=1, ord=2) ** 2).mean() / 4
+
+        num_samples, _ = self.data.shape
+        # first calculate L (without lambda)
+        self.L = np.linalg.norm(self.data) ** 2 / (4 * num_samples)
 
 
     def get(self, batch_index: int = None) -> tuple[Vector, Vector]:
@@ -32,5 +38,12 @@ class StochasticBatchedDataset(DataLoader):
     def total_size(self) -> int:
         return self.data.shape[0]    
     
-    def get_data(self, left: int, right: int) -> tuple[Vector, Vector]:
-        return self.data, self.labels
+    def get_data(self, left: int = None, right: int = None) -> tuple[Vector, Vector]:
+        # make sure both 'left' and 'right' are None or none of them is
+        if (left is None) != (right is None):
+            raise TypeError(f"either both 'left' and 'right' must be None. or None of them")
+
+        if left is None:
+            return self.data, self.labels
+        
+        return self.data[left: left + right], self.labels[left: left + right]

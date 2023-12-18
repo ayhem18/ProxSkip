@@ -97,7 +97,7 @@ class LocalGD(Optimizer):
         self.comminucation_rounds_ = communication_rate
         
 
-    def step(self) -> Vector:
+    def step(self, batch_size: int = None) -> Vector:
         t = self._step['t']
 
         if t >= self._num_iterations:
@@ -105,7 +105,6 @@ class LocalGD(Optimizer):
 
         x_t = self._step['x_t']
 
-       
         upstream_gradients = []
         # for i, dl in enumerate(self.dl_):
         #     X, y = dl.get()
@@ -142,7 +141,7 @@ class LocalGD(Optimizer):
             for j in range(len(self.models_))
         ]
         
-        to_sync = t % self.comminucation_rounds_ == 0
+        to_sync = t % self.comminucation_rounds_ == self.comminucation_rounds_ - 1
         
         if to_sync:
             x_tp1 = np.mean(x_tp1, axis=0)
@@ -154,12 +153,26 @@ class LocalGD(Optimizer):
         for i, model in enumerate(self.models_):
             model.update(x_tp1[i])
 
+
         if to_sync:
             uni_model = self.models_[0]
             loss = 0
             for i, dl in enumerate(self.dl_):
-                X, y = dl.get()
-                loss += self.loss_.loss(uni_model, X, y)
+                # there are 2 cases: either the 'batch_size' parameter is passed or not
+                if batch_size is not None:                
+                    local_loss, i, n = 0, 0, 0
+                    while True:
+                        if i >= dl.total_size():
+                            break
+                        X, y = dl.get_data(i, 32)
+                        local_loss += self.loss_.loss(uni_model, X, y)
+                        n += 1
+                        i += 32
+                    loss += local_loss / n                    
+                else: 
+                    # evaluate the loss on all the data at once.
+                    loss += self.loss_.loss(uni_model, *dl.get_data())
+            
             loss /= len(self.dl_)
             self._step['loss'].append(loss)
 
@@ -308,11 +321,10 @@ class StochasticProxSkip(Optimizer):
             prox,
             num_iterations=num_iterations,
             learning_rate=learning_rate,
-            # batch_size=batch_size,
         )
         self.p_ = p
 
-    def step(self) -> Vector:
+    def step(self, batch_size: int = None) -> Vector:
         # extract the 
         t = self._step['t']
 
@@ -382,15 +394,21 @@ class StochasticProxSkip(Optimizer):
             uni_model = self.models_[0]
             loss = 0
             for i, dl in enumerate(self.dl_):
-                local_loss, i, n = 0, 0, 0
-                while True:
-                    if i >= dl.total_size():
-                        break
-                    X, y = dl.get_data(i, 32)
-                    local_loss += self.loss_.loss(uni_model, X, y)
-                    n += 1
-                    i += 32
-                loss += local_loss / n                    
+                # there are 2 cases: either the 'batch_size' parameter is passed or not
+                if batch_size is not None:                
+                    local_loss, i, n = 0, 0, 0
+                    while True:
+                        if i >= dl.total_size():
+                            break
+                        X, y = dl.get_data(i, batch_size)
+                        local_loss += self.loss_.loss(uni_model, X, y)
+                        n += 1
+                        i += batch_size
+                    loss += local_loss / n                    
+                else: 
+                    # evaluate the loss on all the data at once.
+                    loss += self.loss_.loss(uni_model, *dl.get_data())
+
             loss /= len(self.dl_)
             self._step['loss'].append(loss)
 

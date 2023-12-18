@@ -10,6 +10,6 @@ class DataLoader(ABC):
     def total_size(self) -> int:
         pass
     
-    def get_data(self, left: int, size: int) -> tuple[Vector, Vector]:
+    def get_data(self, left: int = None, size: int = None) -> tuple[Vector, Vector]:
         return self.get()
 
